@@ -13,6 +13,7 @@ VALID_ACTIONS = frozenset(
         "roadmap",
         "future_directions",
         "research_keywords",
+        "papers",
     }
 )
 

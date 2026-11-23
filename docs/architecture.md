@@ -32,21 +32,28 @@
 +--------+---------+
          |
          v
++----------------------------+
+| Selected task services     |
+| LLM tasks | papers tool    |
++------+---------------------+
+       |                |
+       v                v
++-------------+   +-------------------+
+| Groq API    |   | Semantic Scholar  |
++------+------+   +--------+----------+
+       |                   |
+       +---------+---------+
+                 |
+                 v
 +------------------+
-| Selected task   |
-| services / Groq |
+| Report Generator |
+| organize outputs |
 +--------+---------+
          |
          v
 +------------------+
-| Report Generator|
-| organize outputs|
-+--------+---------+
-         |
-         v
-+------------------+
-| Validator Agent |
-| score + warnings|
+| Validator Agent  |
+| score + warnings |
 +--------+---------+
          |
          v
@@ -68,11 +75,13 @@
 - **Execution plan (`backend/models/execution_plan.py`)** is an immutable, validated representation of topic, category, complexity, difficulty, research depth, selected tasks, and visible rationale.
 - **Research agent (`backend/research_agent.py`)** instantiates the services in `TASK_MAP`, runs only the plan's selected actions in order, and connects planning, execution, validation, and report assembly. `backend/agent.py` re-exports the class for earlier imports.
 - **Task services (`backend/services/`)** generate summaries, concepts, research questions, roadmaps, future directions, and academic search keywords. Broad topics request additional concepts; difficulty adjusts question and roadmap prompts.
+- **Paper service (`backend/services/paper_service.py`)** requests real paper records from `SemanticScholarClient`, normalizes metadata, preserves API relevance order, and returns at most five records. It does not use the LLM to write citations.
+- **Semantic Scholar client (`backend/tools/semantic_scholar_client.py`)** queries the public Academic Graph paper-search endpoint for titles, authors, year, citation count, abstract, URL, and paper ID. It supports the optional `SEMANTIC_SCHOLAR_API_KEY` environment variable and surfaces rate limits, HTTP errors, timeouts, and malformed responses explicitly.
 - **Prompts (`backend/prompts.py`)** define task-specific JSON output requirements. The shared `GroqClient` sends requests through the Groq-compatible OpenAI Responses API and validates parsed JSON.
-- **Report generator (`backend/report_generator.py`)** maps task outputs into stable report sections and attaches workflow metadata such as selected/executed actions and creation time.
-- **Validator agent (`backend/validator_agent.py`)** checks every section required by the plan, detects missing or empty content, emits quality warnings, and computes a deterministic score/status. Validation does not claim that generated content is fact-checked.
+- **Report generator (`backend/report_generator.py`)** maps task outputs into stable report sections and attaches workflow metadata such as selected/executed actions, paper count/source, and creation time.
+- **Validator agent (`backend/validator_agent.py`)** checks every section required by the plan, detects missing or empty content, validates paper titles and HTTP(S) URLs, emits quality warnings, and computes a deterministic score/status. Validation does not claim that generated content is fact-checked.
 - **Settings (`config/settings.py`)** loads API credentials from the environment or dotenv files; secrets are not stored in source code.
-- **Tests (`tests/test_agent.py`)** use a queued fake client to exercise decisions, selective task execution, validation, and report shape without a live API key.
+- **Tests (`tests/test_agent.py`)** use queued fake clients and mocked HTTP responses to exercise decisions, selective task execution, paper API behavior, validation, and report shape without external network access.
 
 ## Decision policy
 
@@ -80,6 +89,7 @@ The planner's rationale is generated from explicit, inspectable rules:
 
 - Research/trend/survey/frontier language classifies a topic as research-oriented, selects advanced/deep treatment, and adds future-directions and research-keyword tasks.
 - Technical-domain terms classify topics as technical and normally select intermediate difficulty.
+- Technical and research topics select the papers task because authoritative scholarly references support deeper investigation. Emerging-technology terms are treated as technical or research signals.
 - Beginner language selects beginner difficulty, introductory depth, and a simplified roadmap prompt.
 - Advanced-level language selects advanced difficulty.
 - Broad-scope wording selects exploratory depth, expands concept count, and adds research keywords to help narrow the topic.
@@ -91,10 +101,10 @@ The UI displays these signals and actions as **Agent Reasoning**. This is a conc
 
 1. Validate and normalize the user's topic.
 2. The planner classifies it and returns an ordered execution plan.
-3. The research agent dispatches selected actions through `TASK_MAP`; unselected services are not called.
+3. The research agent dispatches selected actions through `TASK_MAP`; unselected services are not called. The papers action invokes Semantic Scholar rather than an LLM prompt.
 4. The report generator organizes service outputs into report sections.
 5. The validator checks required sections according to the plan, calculates a 0-100 quality score, and records warnings.
 6. The report generator returns the final report with plan, task, timestamp, and validation metadata.
 7. Streamlit shows the plan reasoning and selected report sections.
 
-The model's outputs are suggestions, not sourced research: this version does not retrieve external literature or independently verify factual claims.
+LLM-generated study suggestions are not sourced research. The recommended papers are retrieved from Semantic Scholar and their metadata/links are not generated by the model. The application does not independently verify every paper field or claim in generated prose.

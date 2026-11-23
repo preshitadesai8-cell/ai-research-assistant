@@ -7,6 +7,7 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import streamlit as st
 
@@ -230,6 +231,38 @@ st.markdown(
         font-size: .89rem;
         font-weight: 600;
     }
+    .paper-card {
+        padding: .85rem 0;
+        border-bottom: 1px solid #e8ecf4;
+    }
+    .paper-card:last-child { border-bottom: 0; }
+    .paper-title {
+        color: #233554;
+        font-size: 1.03rem;
+        font-weight: 740;
+        line-height: 1.45;
+    }
+    .paper-meta {
+        margin-top: .35rem;
+        color: #718099;
+        font-size: .82rem;
+        line-height: 1.5;
+    }
+    .paper-why {
+        margin-top: .55rem;
+        color: #4f5f79;
+        font-size: .88rem;
+        line-height: 1.5;
+    }
+    .paper-link {
+        display: inline-block;
+        margin-top: .55rem;
+        color: #4561d5 !important;
+        font-size: .85rem;
+        font-weight: 700;
+        text-decoration: none !important;
+    }
+    .paper-link:hover { text-decoration: underline !important; }
     .roadmap-step {
         padding: .1rem 0 .7rem .95rem;
         border-left: 2px solid #dfe5f8;
@@ -364,6 +397,11 @@ if dark_mode:
             background: #202a3c;
             color: #dce5f6;
         }
+        .paper-card { border-bottom-color: #35415a; }
+        .paper-title { color: #e4ebfa; }
+        .paper-meta { color: #a6b2c8; }
+        .paper-why { color: #cad4e7; }
+        .paper-link { color: #aebcff !important; }
         .roadmap-step { border-left-color: #3a4765; }
         .roadmap-step:last-child { border-left-color: transparent; }
         .step-number {
@@ -460,6 +498,7 @@ def render_agent_reasoning(report: dict[str, Any]) -> None:
         "roadmap": "Learning roadmap",
         "future_directions": "Future directions",
         "research_keywords": "Research keywords",
+        "papers": "Research papers",
     }
     with st.expander("How the agent planned this report", expanded=False):
         left, right = st.columns([1, 1.5], gap="large")
@@ -552,6 +591,70 @@ def render_report(report: dict[str, Any]) -> None:
                 )
                 st.markdown(keywords, unsafe_allow_html=True)
 
+    with st.expander(
+        "📚 Recommended Research Papers",
+        expanded=bool(sections.get("recommended_papers")),
+    ):
+        if "papers" not in plan["actions"]:
+            st.info(
+                "The planner did not select paper discovery for this topic. "
+                "Try a technical, research, or emerging-technology topic to include scholarly papers."
+            )
+        elif report["metadata"]["task_errors"].get("papers"):
+            st.warning(
+                "Paper discovery was selected, but Semantic Scholar could not be reached: "
+                f"{report['metadata']['task_errors']['papers']}"
+            )
+        elif not sections.get("recommended_papers"):
+            st.info("Semantic Scholar returned no papers for this topic.")
+        else:
+            st.caption(
+                f"Retrieved from Semantic Scholar · "
+                f"{report['metadata']['papers_found']} paper(s)"
+            )
+            for paper in sections.get("recommended_papers", []):
+                with st.container(border=True):
+                    st.markdown(
+                        f'<div class="paper-title">{_safe(paper["title"])}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    authors = ", ".join(paper["authors"]) if paper["authors"] else "Authors unavailable"
+                    year = paper["year"] if paper["year"] is not None else "Year unavailable"
+                    st.markdown(
+                        f'<div class="paper-meta">{_safe(authors)} · {_safe(year)} · '
+                        f'{paper["citation_count"]:,} citations</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if paper["abstract"]:
+                        preview = paper["abstract"]
+                        if len(preview) > 500:
+                            preview = preview[:497].rsplit(" ", 1)[0] + "..."
+                        st.write(preview)
+                    else:
+                        st.caption("Abstract unavailable from Semantic Scholar.")
+                    st.markdown(
+                        f'<div class="paper-why">{_safe(paper["why_it_matters"])}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    paper_url = paper["url"]
+                    try:
+                        parsed_url = urlsplit(paper_url)
+                        valid_url = (
+                            parsed_url.scheme in {"http", "https"}
+                            and bool(parsed_url.hostname)
+                            and parsed_url.port != 0
+                        )
+                    except ValueError:
+                        valid_url = False
+                    if valid_url:
+                        st.markdown(
+                            f'<a class="paper-link" href="{_safe(paper["url"])}" '
+                            'target="_blank" rel="noopener noreferrer">Open paper ↗</a>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.caption("Paper link unavailable.")
+
     optional_left, optional_right = st.columns([1, 2], gap="large")
     if "further_study" in sections:
         with optional_left:
@@ -574,7 +677,8 @@ def render_report(report: dict[str, Any]) -> None:
     render_agent_reasoning(report)
     st.markdown(
         '<div class="footnote">AI-generated study guidance is a starting point, not a substitute '
-        'for reviewing primary sources. This report was generated without external source retrieval.</div>',
+        'for reviewing primary sources. Recommended papers are retrieved from Semantic Scholar; '
+        'generated study guidance is not independently source-verified.</div>',
         unsafe_allow_html=True,
     )
 

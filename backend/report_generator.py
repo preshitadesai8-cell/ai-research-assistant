@@ -30,6 +30,8 @@ class ReportGenerator:
             report["future_directions"] = task_outputs["future_directions"]
         if "research_keywords" in task_outputs:
             report["research_keywords"] = task_outputs["research_keywords"]
+        if "papers" in task_outputs:
+            report["recommended_papers"] = task_outputs["papers"]
         return report
 
     def generate(
@@ -37,8 +39,11 @@ class ReportGenerator:
         plan: ExecutionPlan,
         task_outputs: dict[str, Any],
         validation: ValidationResult,
+        *,
+        task_errors: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Return the complete report envelope with decision and quality metadata."""
+        errors = task_errors or {}
         return {
             "topic": plan.topic,
             "topic_type": plan.topic_type,
@@ -55,6 +60,10 @@ class ReportGenerator:
                 "selected_tasks": list(plan.actions),
                 "executed_tasks": list(task_outputs),
                 "generation_method": "rule_planned_llm_tasks",
-                "external_sources_used": False,
+                "external_sources_used": "papers" in task_outputs,
+                "papers_found": len(task_outputs.get("papers", [])),
+                "source": "Semantic Scholar" if "papers" in task_outputs else None,
+                "quality_score": validation.score,
+                "task_errors": errors,
             },
         }

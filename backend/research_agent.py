@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 from backend.groq_client import GroqClient
 from backend.models.execution_plan import ExecutionPlan
@@ -12,9 +12,11 @@ from backend.report_generator import ReportGenerator
 from backend.services.concepts_service import ConceptsService
 from backend.services.future_directions_service import FutureDirectionService
 from backend.services.keyword_service import KeywordService
+from backend.services.paper_service import PaperService
 from backend.services.questions_service import QuestionsService
 from backend.services.roadmap_service import RoadmapService
 from backend.services.summary_service import SummaryService
+from backend.tools.semantic_scholar_client import SemanticScholarError
 from backend.validator_agent import ValidatorAgent
 
 logger = logging.getLogger(__name__)
@@ -26,7 +28,14 @@ TASK_MAP: dict[str, type[Any]] = {
     "roadmap": RoadmapService,
     "future_directions": FutureDirectionService,
     "research_keywords": KeywordService,
+    "papers": PaperService,
 }
+
+
+class PaperTask(Protocol):
+    """Interface for the external scholarly paper discovery task."""
+
+    def search_papers(self, topic: str) -> list[dict[str, Any]]: ...
 
 
 class ResearchAgent:
@@ -38,6 +47,7 @@ class ResearchAgent:
         planner: PlannerAgent | None = None,
         validator: ValidatorAgent | None = None,
         report_generator: ReportGenerator | None = None,
+        paper_service: PaperTask | None = None,
     ) -> None:
         """Create task services using one shared model client."""
         shared_client = client if client is not None else GroqClient()
@@ -46,9 +56,14 @@ class ResearchAgent:
         self._report_generator = (
             report_generator if report_generator is not None else ReportGenerator()
         )
-        self._services: dict[str, Any] = {
-            action: service_type(shared_client) for action, service_type in TASK_MAP.items()
-        }
+        self._services: dict[str, Any] = {}
+        for action, service_type in TASK_MAP.items():
+            if action == "papers":
+                self._services[action] = (
+                    paper_service if paper_service is not None else service_type()
+                )
+            else:
+                self._services[action] = service_type(shared_client)
 
     def plan(self, topic: str) -> ExecutionPlan:
         """Expose the planning stage for UI display and independent inspection."""
@@ -64,9 +79,17 @@ class ResearchAgent:
             ", ".join(plan.actions),
         )
         task_outputs: dict[str, Any] = {}
+        task_errors: dict[str, str] = {}
         for action in plan.actions:
             logger.info("Executing research task: %s", action)
-            task_outputs[action] = self._execute_action(action, plan)
+            try:
+                task_outputs[action] = self._execute_action(action, plan)
+            except SemanticScholarError as exc:
+                if action != "papers":
+                    raise
+                logger.warning("Paper discovery failed; continuing without paper results: %s", exc)
+                task_outputs[action] = []
+                task_errors[action] = str(exc)
 
         sections = self._report_generator.organize(task_outputs)
         validation = self._validator.validate(plan, sections)
@@ -75,7 +98,12 @@ class ResearchAgent:
             validation.status,
             validation.score,
         )
-        return self._report_generator.generate(plan, task_outputs, validation)
+        return self._report_generator.generate(
+            plan,
+            task_outputs,
+            validation,
+            task_errors=task_errors,
+        )
 
     def generate_summary(self, topic: str) -> str:
         """Run only the summary task."""
@@ -108,6 +136,8 @@ class ResearchAgent:
             return service.generate(plan.topic)
         if action == "research_keywords":
             return service.generate(plan.topic)
+        if action == "papers":
+            return service.search_papers(plan.topic)
         raise ValueError(f"No task executor is registered for action '{action}'.")
 
     @staticmethod

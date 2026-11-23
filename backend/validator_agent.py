@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 from backend.models.execution_plan import ExecutionPlan
 
@@ -14,6 +15,7 @@ ACTION_SECTIONS: dict[str, tuple[str, ...]] = {
     "roadmap": ("further_study", "learning_roadmap"),
     "future_directions": ("future_directions",),
     "research_keywords": ("research_keywords",),
+    "papers": ("recommended_papers",),
 }
 
 
@@ -49,9 +51,29 @@ class ValidatorAgent:
             if section not in report_sections:
                 warnings.append(f"Required section '{section}' is missing.")
                 deductions += 25
-            elif not self._has_content(report_sections[section]):
+            elif section != "recommended_papers" and not self._has_content(report_sections[section]):
                 warnings.append(f"Required section '{section}' is empty.")
                 deductions += 20
+
+        if "papers" in plan.actions and "recommended_papers" in report_sections:
+            papers = report_sections["recommended_papers"]
+            if not isinstance(papers, list) or not papers:
+                warnings.append("Paper discovery returned no papers; at least one paper is required.")
+                deductions += 25
+            else:
+                for index, paper in enumerate(papers, start=1):
+                    if not isinstance(paper, dict):
+                        warnings.append(f"Paper {index} has an invalid record.")
+                        deductions += 10
+                        continue
+                    title = paper.get("title")
+                    if not isinstance(title, str) or not title.strip():
+                        warnings.append(f"Paper {index} has an empty title.")
+                        deductions += 10
+                    url = paper.get("url")
+                    if not self._is_http_url(url):
+                        warnings.append(f"Paper {index} is missing a valid URL.")
+                        deductions += 10
 
         if self._has_content(report_sections.get("summary")):
             summary = report_sections["summary"]
@@ -91,3 +113,18 @@ class ValidatorAgent:
         if isinstance(value, dict):
             return bool(value) and all(cls._has_content(item) for item in value.values())
         return value is not None
+
+    @staticmethod
+    def _is_http_url(value: object) -> bool:
+        """Check that an external paper link has a safe HTTP(S) URL shape."""
+        if not isinstance(value, str) or not value.strip():
+            return False
+        try:
+            parsed_url = urlsplit(value.strip())
+            return (
+                parsed_url.scheme in {"http", "https"}
+                and bool(parsed_url.hostname)
+                and parsed_url.port != 0
+            )
+        except ValueError:
+            return False

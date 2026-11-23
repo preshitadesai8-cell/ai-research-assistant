@@ -20,6 +20,14 @@ RESEARCH_SIGNALS = (
 TECHNICAL_SIGNALS = (
     "machine learning",
     "artificial intelligence",
+    "generative ai",
+    "large language model",
+    "blockchain",
+    "robotics",
+    "computer vision",
+    "data science",
+    "cloud computing",
+    "internet of things",
     "neural network",
     "quantum",
     "algorithm",
@@ -94,6 +102,8 @@ class PlannerAgent:
         actions.append("roadmap")
         if is_broad and "research_keywords" not in actions:
             actions.append("research_keywords")
+        if has_technical_signal or has_research_signal:
+            actions.append("papers")
 
         reasoning = [
             f"Classified as {topic_type} based on the topic wording and domain signals.",
@@ -103,6 +113,10 @@ class PlannerAgent:
         if has_research_signal:
             reasoning.append(
                 "Research/trend language triggered future-directions and keyword tasks."
+            )
+        if "papers" in actions:
+            reasoning.append(
+                "Technical and research topics benefit from authoritative academic references; selected Semantic Scholar paper discovery."
             )
         if is_broad:
             reasoning.append(
